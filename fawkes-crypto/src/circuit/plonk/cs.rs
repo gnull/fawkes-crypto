@@ -8,20 +8,27 @@ use std::{cell::RefCell, rc::Rc};
 
 pub type RCS<Fr> = Rc<RefCell<CS<Fr>>>;
 
+/// A `Gate` describes constraint of the form
+///
+/// ```
+/// a*x + b*y + c*z + d*x*y + e == 0
+/// ```
+///
+/// where `x`, `y`, `z` are variable witness elements (represented here as
+/// indices), while the `a` ... `e` values are concrete constants represented
+/// here as field values.
 #[derive(Clone, Debug)]
-pub enum Gate<Fr: PrimeField> {
-    // a*x + b *y + c*z + d*x*y + e == 0
-    Arith(
-        Num<Fr>,
-        usize,
-        Num<Fr>,
-        usize,
-        Num<Fr>,
-        usize,
-        Num<Fr>,
-        Num<Fr>,
-    ),
+pub struct Gate<Fr: PrimeField> {
+    a: Num<Fr>,
+    x: usize,
+    b: Num<Fr>,
+    y: usize,
+    c: Num<Fr>,
+    z: usize,
+    d: Num<Fr>,
+    e: Num<Fr>,
 }
+
 #[derive(Clone, Debug)]
 pub struct CS<Fr: PrimeField> {
     pub values: Vec<Option<Num<Fr>>>,
@@ -59,16 +66,16 @@ impl<Fr: PrimeField> CS<Fr> {
                 _ => {}
             }
         }
-        rcs.gates.push(Gate::Arith(
-            a.lc.0 * b.lc.2,
-            a.lc.1,
-            a.lc.2 * b.lc.0,
-            b.lc.1,
-            -c.lc.0,
-            c.lc.1,
-            a.lc.0 * b.lc.0,
-            a.lc.2 * b.lc.2 - c.lc.2,
-        ))
+        rcs.gates.push(Gate {
+            a: a.lc.0 * b.lc.2,
+            x: a.lc.1,
+            b: a.lc.2 * b.lc.0,
+            y: b.lc.1,
+            c: -c.lc.0,
+            z: c.lc.1,
+            d: a.lc.0 * b.lc.0,
+            e: a.lc.2 * b.lc.2 - c.lc.2,
+        })
     }
 
     pub fn enforce_add(a: &CNum<Fr>, b: &CNum<Fr>, c: &CNum<Fr>) {
@@ -81,16 +88,16 @@ impl<Fr: PrimeField> CS<Fr> {
                 _ => {}
             }
         }
-        rcs.gates.push(Gate::Arith(
-            a.lc.0,
-            a.lc.1,
-            b.lc.0,
-            b.lc.1,
-            -c.lc.0,
-            c.lc.1,
-            Num::ZERO,
-            a.lc.2 + b.lc.2 - c.lc.2,
-        ))
+        rcs.gates.push(Gate {
+            a: a.lc.0,
+            x: a.lc.1,
+            b: b.lc.0,
+            y: b.lc.1,
+            c: -c.lc.0,
+            z: c.lc.1,
+            d: Num::ZERO,
+            e: a.lc.2 + b.lc.2 - c.lc.2,
+        })
     }
 
     pub fn inputize(n: &CNum<Fr>) {
