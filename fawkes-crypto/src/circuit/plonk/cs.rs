@@ -8,19 +8,25 @@ use std::{cell::RefCell, rc::Rc};
 
 pub type RCS<C> = Rc<RefCell<C>>;
 
+/// A `Gate` describes constraint of the form
+///
+/// ```
+/// a*x + b*y + c*z + d*x*y + e == 0
+/// ```
+///
+/// where `x`, `y`, `z` are variable witness elements (represented here as
+/// indices), while the `a` ... `e` values are concrete constants represented
+/// here as field values.
 #[derive(Clone, Debug)]
-pub enum Gate<Fr: PrimeField> {
-    // a*x + b *y + c*z + d*x*y + e == 0
-    Arith(
-        Num<Fr>,
-        usize,
-        Num<Fr>,
-        usize,
-        Num<Fr>,
-        usize,
-        Num<Fr>,
-        Num<Fr>,
-    ),
+pub struct Gate<Fr: PrimeField> {
+    pub a: Num<Fr>,
+    pub x: usize,
+    pub b: Num<Fr>,
+    pub y: usize,
+    pub c: Num<Fr>,
+    pub z: usize,
+    pub d: Num<Fr>,
+    pub e: Num<Fr>,
 }
 
 pub trait CS: Clone {
@@ -107,16 +113,16 @@ impl<Fr: PrimeField> CS for BuildCS<Fr> {
                 _ => {}
             }
         }
-        rcs.gates.push(Gate::Arith(
-            a.lc.0 * b.lc.2,
-            a.lc.1,
-            a.lc.2 * b.lc.0,
-            b.lc.1,
-            -c.lc.0,
-            c.lc.1,
-            a.lc.0 * b.lc.0,
-            a.lc.2 * b.lc.2 - c.lc.2,
-        ))
+        rcs.gates.push(Gate {
+            a: a.lc.0 * b.lc.2,
+            x: a.lc.1,
+            b: a.lc.2 * b.lc.0,
+            y: b.lc.1,
+            c: -c.lc.0,
+            z: c.lc.1,
+            d: a.lc.0 * b.lc.0,
+            e: a.lc.2 * b.lc.2 - c.lc.2,
+        })
     }
 
     fn enforce_add(a: &CNum<Self>, b: &CNum<Self>, c: &CNum<Self>) {
@@ -129,16 +135,16 @@ impl<Fr: PrimeField> CS for BuildCS<Fr> {
                 _ => {}
             }
         }
-        rcs.gates.push(Gate::Arith(
-            a.lc.0,
-            a.lc.1,
-            b.lc.0,
-            b.lc.1,
-            -c.lc.0,
-            c.lc.1,
-            Num::ZERO,
-            a.lc.2 + b.lc.2 - c.lc.2,
-        ))
+        rcs.gates.push(Gate {
+            a: a.lc.0,
+            x: a.lc.1,
+            b: b.lc.0,
+            y: b.lc.1,
+            c: -c.lc.0,
+            z: c.lc.1,
+            d: Num::ZERO,
+            e: a.lc.2 + b.lc.2 - c.lc.2,
+        })
     }
 
     fn inputize(n: &CNum<Self>) {
