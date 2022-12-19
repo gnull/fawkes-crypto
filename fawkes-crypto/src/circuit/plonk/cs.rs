@@ -55,6 +55,47 @@ impl<Fr: PrimeField> CS<Fr> {
         Rc::new(RefCell::new(Self::new(tracking)))
     }
 
+    /// Enforce a*x + b*y + c*z + d*x*y + e == 0. This is the raw form of the
+    /// constraints implemented by PLONK, the other ones like `enforce_add`
+    /// and `enforce_mul` are implemented through this.
+    ///
+    /// One may find this not the most intuitive way to express constraints,
+    /// but it's very efficient, and allows you to express things like `a + b +
+    /// ab` through a single constraint.
+    pub fn enforce_generic(
+        x: &CNum<Fr>,
+        y: &CNum<Fr>,
+        z: &CNum<Fr>,
+        a: &Num<Fr>,
+        b: &Num<Fr>,
+        c: &Num<Fr>,
+        d: &Num<Fr>,
+        e: &Num<Fr>
+    ) {
+        let mut rcs = x.get_cs().borrow_mut();
+        if rcs.tracking {
+            match (x.value, y.value, z.value) {
+                (Some(x), Some(y), Some(z)) => {
+                    assert!(
+                       a*x + b*y + c*z + d*x*y + e == Num::ZERO,
+                       "Not satisfied constraint"
+                    );
+                }
+                _ => {}
+            }
+        }
+        rcs.gates.push(Gate {
+            a: a * x.0 + d * x.0 * y.2 + y.2,
+            x: x.1,
+            b: b * y.0 + d * y.0 * x.2 + x.2,
+            y: y.1,
+            c: c * z.0,
+            z: z.1,
+            d: d * x.0 * y.0,
+            e: e + a * x.2 + b * y.2 + c * z.2 + d * x.2 * y.2,
+        })
+    }
+
     // a*b === c
     pub fn enforce_mul(x: &CNum<Fr>, y: &CNum<Fr>, z: &CNum<Fr>) {
         let mut rcs = x.get_cs().borrow_mut();
