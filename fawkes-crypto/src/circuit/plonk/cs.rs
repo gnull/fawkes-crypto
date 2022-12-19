@@ -103,47 +103,47 @@ impl<Fr: PrimeField> CS for BuildCS<Fr> {
     }
 
     // a*b === c
-    fn enforce_mul(a: &CNum<Self>, b: &CNum<Self>, c: &CNum<Self>) {
-        let mut rcs = a.get_cs().borrow_mut();
+    fn enforce_mul(x: &CNum<Self>, y: &CNum<Self>, z: &CNum<Self>) {
+        let mut rcs = x.get_cs().borrow_mut();
         if rcs.tracking {
-            match (a.value, b.value, c.value) {
-                (Some(a), Some(b), Some(c)) => {
-                    assert!(a * b == c, "Not satisfied constraint");
+            match (x.value, y.value, z.value) {
+                (Some(x), Some(y), Some(z)) => {
+                    assert!(x * y == z, "Not satisfied constraint");
                 }
                 _ => {}
             }
         }
         rcs.gates.push(Gate {
-            a: a.lc.0 * b.lc.2,
-            x: a.lc.1,
-            b: a.lc.2 * b.lc.0,
-            y: b.lc.1,
-            c: -c.lc.0,
-            z: c.lc.1,
-            d: a.lc.0 * b.lc.0,
-            e: a.lc.2 * b.lc.2 - c.lc.2,
+            a: x.lc.0 * y.lc.2,
+            x: x.lc.1,
+            b: x.lc.2 * y.lc.0,
+            y: y.lc.1,
+            c: -z.lc.0,
+            z: z.lc.1,
+            d: x.lc.0 * y.lc.0,
+            e: x.lc.2 * y.lc.2 - z.lc.2,
         })
     }
 
-    fn enforce_add(a: &CNum<Self>, b: &CNum<Self>, c: &CNum<Self>) {
-        let mut rcs = a.get_cs().borrow_mut();
+    fn enforce_add(x: &CNum<Self>, y: &CNum<Self>, z: &CNum<Self>) {
+        let mut rcs = x.get_cs().borrow_mut();
         if rcs.tracking {
-            match (a.value, b.value, c.value) {
-                (Some(a), Some(b), Some(c)) => {
-                    assert!(a + b == c, "Not satisfied constraint");
+            match (x.value, y.value, z.value) {
+                (Some(x), Some(y), Some(z)) => {
+                    assert!(x + y == z, "Not satisfied constraint");
                 }
                 _ => {}
             }
         }
         rcs.gates.push(Gate {
-            a: a.lc.0,
-            x: a.lc.1,
-            b: b.lc.0,
-            y: b.lc.1,
-            c: -c.lc.0,
-            z: c.lc.1,
+            a: x.lc.0,
+            x: x.lc.1,
+            b: y.lc.0,
+            y: y.lc.1,
+            c: -z.lc.0,
+            z: z.lc.1,
             d: Num::ZERO,
-            e: a.lc.2 + b.lc.2 - c.lc.2,
+            e: x.lc.2 + y.lc.2 - z.lc.2,
         })
     }
 
