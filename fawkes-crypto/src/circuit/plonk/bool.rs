@@ -9,6 +9,8 @@ use crate::{
 
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not};
 
+/// This is the same as CNum, but restricted to values 0 and 1 with Boolean
+/// operations defined on them.
 #[derive(Clone, Debug)]
 pub struct CBool<Fr: PrimeField>(CNum<Fr>);
 

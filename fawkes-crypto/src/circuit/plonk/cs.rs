@@ -34,6 +34,7 @@ pub struct CS<Fr: PrimeField> {
     pub values: Vec<Option<Num<Fr>>>,
     pub gates: Vec<Gate<Fr>>,
     pub tracking: bool,
+    /// Indices of public witness components, i.e. the inputs.
     pub public: Vec<usize>,
 }
 

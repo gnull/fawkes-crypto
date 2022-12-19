@@ -12,10 +12,16 @@ use std::{
     rc::Rc,
 };
 
+/// CNum represents a linear function of one witness component. In other words
+/// if x is a private/public witness component, then CNum can represent an
+/// expression of the form a * x + b. This means that multiplying a CNum by a
+/// constant or addint a constant to it are for free (implemented by modifying
+/// `a` and `b`), but any operations on two (or more) CNums involve adding
+/// constraints into CS.
 #[derive(Clone, Debug)]
 pub struct CNum<Fr: PrimeField> {
     pub value: Option<Num<Fr>>,
-    // a*x + b
+    /// The `(a, x, b)` from `a*x + b`
     pub lc: (Num<Fr>, usize, Num<Fr>),
     pub cs: Rc<RefCell<CS<Fr>>>,
 }
