@@ -6,7 +6,7 @@ use crate::{
 
 use std::{cell::RefCell, rc::Rc};
 
-pub type RCS<Fr> = Rc<RefCell<CS<Fr>>>;
+pub type RCS<C> = Rc<RefCell<C>>;
 
 #[derive(Clone, Debug)]
 pub enum Gate<Fr: PrimeField> {
@@ -22,15 +22,60 @@ pub enum Gate<Fr: PrimeField> {
         Num<Fr>,
     ),
 }
+
+pub trait CS: Clone {
+    type Fr: PrimeField;
+    type GateIterator: Iterator<Item=Gate<Self::Fr>>;
+
+    fn num_gates(&self) -> usize;
+    fn num_input(&self) -> usize;
+    fn num_aux(&self) -> usize;
+    // fn get_value(&self, index:Index) -> Option<Num<Self::Fr>>;
+    fn get_gate_iterator(&self) -> Self::GateIterator;
+
+    // a*b === c
+    fn enforce(a: &CNum<Self>, b: &CNum<Self>, c: &CNum<Self>);
+    fn enforce_mul(a: &CNum<Self>, b: &CNum<Self>, c: &CNum<Self>);
+    fn enforce_add(a: &CNum<Self>, b: &CNum<Self>, c: &CNum<Self>);
+
+    fn inputize(n: &CNum<Self>);
+    fn alloc(cs: &RCS<Self>, value: Option<&Num<Self::Fr>>) -> CNum<Self>;
+
+    fn const_tracker_before(&mut self) -> Option<bool> {
+        None
+    }
+
+    fn const_tracker_after(&mut self, _:bool) {}
+}
+
 #[derive(Clone, Debug)]
-pub struct CS<Fr: PrimeField> {
+pub struct BuildCS<Fr: PrimeField> {
     pub values: Vec<Option<Num<Fr>>>,
     pub gates: Vec<Gate<Fr>>,
     pub tracking: bool,
     pub public: Vec<usize>,
 }
 
-impl<Fr: PrimeField> CS<Fr> {
+impl<Fr: PrimeField> CS for BuildCS<Fr> {
+    type Fr = Fr;
+    type GateIterator = std::vec::IntoIter<Gate<Self::Fr>>;
+
+    fn num_gates(&self) -> usize {panic!()}
+    fn num_input(&self) -> usize {panic!()}
+    fn num_aux(&self) -> usize {panic!()}
+    // fn get_value(&self, index:Index) -> Option<Num<Self::Fr>> {panic!()}
+    fn get_gate_iterator(&self) -> Self::GateIterator {panic!()}
+
+    // a*b === c
+    fn enforce(a: &CNum<Self>, b: &CNum<Self>, c: &CNum<Self>) {panic!()}
+    fn enforce_mul(a: &CNum<Self>, b: &CNum<Self>, c: &CNum<Self>) {panic!()}
+    fn enforce_add(a: &CNum<Self>, b: &CNum<Self>, c: &CNum<Self>) {panic!()}
+
+    fn inputize(n: &CNum<Self>) {panic!()}
+    fn alloc(cs: &RCS<Self>, value: Option<&Num<Self::Fr>>) -> CNum<Self> {panic!()}
+}
+
+impl<Fr: PrimeField> BuildCS<Fr> {
     pub fn num_gate(&self) -> usize {
         self.gates.len()
     }
@@ -44,12 +89,12 @@ impl<Fr: PrimeField> CS<Fr> {
         }
     }
 
-    pub fn rc_new(tracking: bool) -> RCS<Fr> {
+    pub fn rc_new(tracking: bool) -> RCS<Self> {
         Rc::new(RefCell::new(Self::new(tracking)))
     }
 
     // a*b === c
-    pub fn enforce_mul(a: &CNum<Fr>, b: &CNum<Fr>, c: &CNum<Fr>) {
+    pub fn enforce_mul(a: &CNum<Self>, b: &CNum<Self>, c: &CNum<Self>) {
         let mut rcs = a.get_cs().borrow_mut();
         if rcs.tracking {
             match (a.value, b.value, c.value) {
@@ -71,7 +116,7 @@ impl<Fr: PrimeField> CS<Fr> {
         ))
     }
 
-    pub fn enforce_add(a: &CNum<Fr>, b: &CNum<Fr>, c: &CNum<Fr>) {
+    pub fn enforce_add(a: &CNum<Self>, b: &CNum<Self>, c: &CNum<Self>) {
         let mut rcs = a.get_cs().borrow_mut();
         if rcs.tracking {
             match (a.value, b.value, c.value) {
@@ -93,11 +138,11 @@ impl<Fr: PrimeField> CS<Fr> {
         ))
     }
 
-    pub fn inputize(n: &CNum<Fr>) {
+    pub fn inputize(n: &CNum<Self>) {
         let v = if n.lc.0 == Num::ONE && n.lc.2 == Num::ZERO {
             n.lc.1
         } else {
-            let m: CNum<Fr> = n.derive_alloc(n.value.as_ref());
+            let m: CNum<Self> = n.derive_alloc(n.value.as_ref());
             m.assert_eq(n);
             m.lc.1
         };
@@ -105,7 +150,7 @@ impl<Fr: PrimeField> CS<Fr> {
         n.get_cs().borrow_mut().public.push(v);
     }
 
-    pub fn alloc(cs: &RCS<Fr>, value: Option<&Num<Fr>>) -> CNum<Fr> {
+    pub fn alloc(cs: &RCS<Self>, value: Option<&Num<Fr>>) -> CNum<Self> {
         let mut rcs = cs.borrow_mut();
         let n_vars = rcs.values.len();
         let v = n_vars;
