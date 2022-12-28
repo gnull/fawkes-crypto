@@ -26,7 +26,7 @@ impl<C: CS> CNum<C> {
         self.assert_const(&Num::ZERO)
     }
 
-    // FIXME: I'm not sure how this thing works
+    // FIXME: I'm not sure how this thing works. I copied it from R1CS.
     pub fn assert_even(&self) {
         let bits = c_into_bits_le_strict(&self);
         bits[0].assert_const(&false);

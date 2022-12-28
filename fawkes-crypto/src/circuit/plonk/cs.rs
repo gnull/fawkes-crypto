@@ -30,12 +30,13 @@ pub trait CS: Clone {
     fn num_gates(&self) -> usize;
     fn num_input(&self) -> usize;
     fn num_aux(&self) -> usize;
-    // fn get_value(&self, index:Index) -> Option<Num<Self::Fr>>;
+    fn get_value(&self, index: usize) -> Option<Num<Self::Fr>>;
     fn get_gate_iterator(&self) -> Self::GateIterator;
 
-    // a*b === c
-    fn enforce(a: &CNum<Self>, b: &CNum<Self>, c: &CNum<Self>);
+    // a * b == c
     fn enforce_mul(a: &CNum<Self>, b: &CNum<Self>, c: &CNum<Self>);
+
+    // a + b == c
     fn enforce_add(a: &CNum<Self>, b: &CNum<Self>, c: &CNum<Self>);
 
     fn inputize(n: &CNum<Self>);
@@ -56,30 +57,7 @@ pub struct BuildCS<Fr: PrimeField> {
     pub public: Vec<usize>,
 }
 
-impl<Fr: PrimeField> CS for BuildCS<Fr> {
-    type Fr = Fr;
-    type GateIterator = std::vec::IntoIter<Gate<Self::Fr>>;
-
-    fn num_gates(&self) -> usize {panic!()}
-    fn num_input(&self) -> usize {panic!()}
-    fn num_aux(&self) -> usize {panic!()}
-    // fn get_value(&self, index:Index) -> Option<Num<Self::Fr>> {panic!()}
-    fn get_gate_iterator(&self) -> Self::GateIterator {panic!()}
-
-    // a*b === c
-    fn enforce(a: &CNum<Self>, b: &CNum<Self>, c: &CNum<Self>) {panic!()}
-    fn enforce_mul(a: &CNum<Self>, b: &CNum<Self>, c: &CNum<Self>) {panic!()}
-    fn enforce_add(a: &CNum<Self>, b: &CNum<Self>, c: &CNum<Self>) {panic!()}
-
-    fn inputize(n: &CNum<Self>) {panic!()}
-    fn alloc(cs: &RCS<Self>, value: Option<&Num<Self::Fr>>) -> CNum<Self> {panic!()}
-}
-
 impl<Fr: PrimeField> BuildCS<Fr> {
-    pub fn num_gate(&self) -> usize {
-        self.gates.len()
-    }
-
     pub fn new(tracking: bool) -> Self {
         Self {
             values: vec![],
@@ -92,9 +70,34 @@ impl<Fr: PrimeField> BuildCS<Fr> {
     pub fn rc_new(tracking: bool) -> RCS<Self> {
         Rc::new(RefCell::new(Self::new(tracking)))
     }
+}
+
+impl<Fr: PrimeField> CS for BuildCS<Fr> {
+    type Fr = Fr;
+    type GateIterator = std::vec::IntoIter<Gate<Self::Fr>>;
+
+    fn num_gates(&self) -> usize {
+        self.gates.len()
+    }
+
+    fn num_input(&self) -> usize {
+        self.public.len()
+    }
+
+    fn num_aux(&self) -> usize {
+        self.values.len() - self.public.len()
+    }
+
+    fn get_value(&self, index: usize) -> Option<Num<Self::Fr>> {
+        self.values[index]
+    }
+
+    fn get_gate_iterator(&self) -> Self::GateIterator {
+        self.gates.clone().into_iter()
+    }
 
     // a*b === c
-    pub fn enforce_mul(a: &CNum<Self>, b: &CNum<Self>, c: &CNum<Self>) {
+    fn enforce_mul(a: &CNum<Self>, b: &CNum<Self>, c: &CNum<Self>) {
         let mut rcs = a.get_cs().borrow_mut();
         if rcs.tracking {
             match (a.value, b.value, c.value) {
@@ -116,7 +119,7 @@ impl<Fr: PrimeField> BuildCS<Fr> {
         ))
     }
 
-    pub fn enforce_add(a: &CNum<Self>, b: &CNum<Self>, c: &CNum<Self>) {
+    fn enforce_add(a: &CNum<Self>, b: &CNum<Self>, c: &CNum<Self>) {
         let mut rcs = a.get_cs().borrow_mut();
         if rcs.tracking {
             match (a.value, b.value, c.value) {
@@ -138,7 +141,7 @@ impl<Fr: PrimeField> BuildCS<Fr> {
         ))
     }
 
-    pub fn inputize(n: &CNum<Self>) {
+    fn inputize(n: &CNum<Self>) {
         let v = if n.lc.0 == Num::ONE && n.lc.2 == Num::ZERO {
             n.lc.1
         } else {
@@ -150,7 +153,7 @@ impl<Fr: PrimeField> BuildCS<Fr> {
         n.get_cs().borrow_mut().public.push(v);
     }
 
-    pub fn alloc(cs: &RCS<Self>, value: Option<&Num<Fr>>) -> CNum<Self> {
+    fn alloc(cs: &RCS<Self>, value: Option<&Num<Fr>>) -> CNum<Self> {
         let mut rcs = cs.borrow_mut();
         let n_vars = rcs.values.len();
         let v = n_vars;
