@@ -26,7 +26,10 @@ getrandom = { version = "0.2", optional = true }
 bit-vec = "0.6.3"
 itertools = "0.10.1"
 brotli = "3.3.2"
-plonk = { git = "https://github.com/ZK-Garage/plonk.git", rev = "ec76fd36cc6b9e9d0f7a9495094e76b86e53dab4" }
+halo2 = { git = "https://github.com/zcash/halo2.git", rev = "9dfc5d9393844f96e8c7901c6ecbd913e259f7f4", optional = true }
+halo2_proofs = { git = "https://github.com/zcash/halo2.git", rev = "9dfc5d9393844f96e8c7901c6ecbd913e259f7f4", optional = true }
+halo2_gadgets = { git = "https://github.com/zcash/halo2.git", rev = "9dfc5d9393844f96e8c7901c6ecbd913e259f7f4", optional = true }
+group = { version = "0.13", optional = true }
 
 [dependencies.blake2_rfc]
 version = "0.0.1"
@@ -45,7 +48,7 @@ optional = true
 [features]
 default=["plonk", "borsh_support", "serde_support"]
 r1cs=["linked-list"]
-plonk=[]
+plonk=["halo2", "halo2_proofs", "halo2_gadgets", "group"]
 backend_bellman_groth16=["bellman", "rand_support"]
 heavy_tests=[]
 borsh_support = ["borsh", "ff-uint/borsh_support"]
