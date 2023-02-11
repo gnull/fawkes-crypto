@@ -1,10 +1,19 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, iter};
 
-use group::ff::Field;
+use group::{ff::Field, prime::PrimeCurve};
 use halo2_proofs::{
     circuit::{AssignedCell, Chip, Layouter, Region, SimpleFloorPlanner, Value},
-    plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Fixed, Instance, Selector},
-    poly::Rotation,
+    plonk::{Advice, Any, Circuit, Column, ConstraintSystem, Error, Fixed, Instance, Selector},
+    poly::Rotation, // dev::metadata::Column,
+};
+
+use crate::{
+  circuit::{
+    cs::*,
+    num::*,
+    bool::*,
+  },
+  ff_uint::{Num, PrimeField},
 };
 
 // ANCHOR: instructions
@@ -298,5 +307,174 @@ impl<F: Field> Circuit<F> for MyCircuit<F> {
 
         // Expose the result as a public input to the circuit.
         field_chip.expose_public(layouter.namespace(|| "expose c"), c, 0)
+    }
+}
+// ANCHOR_END: circuit
+
+#[test]
+fn test_plonk_example() {
+    use halo2_proofs::{dev::MockProver, pasta::Fp};
+
+    // ANCHOR: test-circuit
+    // The number of rows in our circuit cannot exceed 2^k. Since our example
+    // circuit is very small, we can pick a very small value here.
+    let k = 4;
+
+    // Prepare the private and public inputs to the circuit!
+    let constant = Fp::from(7);
+    let a = Fp::from(2);
+    let b = Fp::from(3);
+    let c = constant * a.square() * b.square();
+
+    // Instantiate the circuit with the private inputs.
+    let circuit = MyCircuit {
+        constant,
+        a: Value::known(a),
+        b: Value::known(b),
+    };
+
+    // Arrange the public input. We expose the multiplication result in row 0
+    // of the instance column, so we position it there in our public inputs.
+    let mut public_inputs = vec![c];
+
+    // Given the correct public input, our circuit will verify.
+    let prover = MockProver::run(k, &circuit, vec![public_inputs.clone()]).unwrap();
+    assert_eq!(prover.verify(), Ok(()));
+
+    // If we try some other public input, the proof will fail!
+    public_inputs[0] += Fp::one();
+    let prover = MockProver::run(k, &circuit, vec![public_inputs]).unwrap();
+    assert!(prover.verify().is_err());
+    // ANCHOR_END: test-circuit
+}
+
+#[derive(Clone, Debug)]
+/// a*x + b*y + c*z + d*x*y + e == 0
+pub struct FawkesGateConfig<F: Field + PrimeField> {
+    x: Column<Advice>,
+    y: Column<Advice>,
+    z: Column<Advice>,
+    a: Column<Fixed>,
+    b: Column<Fixed>,
+    c: Column<Fixed>,
+    d: Column<Fixed>,
+    e: Column<Fixed>,
+    /// Selector that enables/disables the equation for a specific row
+    sel: Selector,
+    _marker: PhantomData<F>,
+}
+
+pub struct FawkesGateLayout<F: Field + PrimeField> {
+    x: AssignedCell<F, F>,
+    y: AssignedCell<F, F>,
+    z: AssignedCell<F, F>,
+}
+
+impl<F: Field + PrimeField> FawkesGateConfig<F> {
+    /// Allocate the columns this gate will be using, and describe the
+    /// constraint equation it will enforce. (Without knowing the cell values
+    /// or the rows that we will occupy yet.)
+    fn config(cs: &mut ConstraintSystem<F>) -> Self {
+        // We allocate the columns over which we will be defining our gate. We
+        // also enable equality constraints for each of the three advice gates.
+        let res = {
+            let make_advice = &mut || {
+                let c = cs.advice_column();
+                cs.enable_equality(c);
+                c
+            };
+
+            Self {
+                x: make_advice(),
+                y: make_advice(),
+                z: make_advice(),
+                a: cs.fixed_column(),
+                b: cs.fixed_column(),
+                c: cs.fixed_column(),
+                d: cs.fixed_column(),
+                e: cs.fixed_column(),
+                sel: cs.selector(),
+                _marker: PhantomData,
+            }
+        };
+
+        // This call describes the shape of our gate over matrix cells. Here,
+        // we know neither the concrete advice/instance/selector values, nor
+        // the row in which the gate will be placed yet (such things are
+        // determined at synthesis time).
+        cs.create_gate("standard_gate", |virtual_cells| {
+            // Query the cells that are at the intersection of the current
+            // (virtual) row and each of the columns that we just allocated.
+            let sel = virtual_cells.query_selector(res.sel);
+            let x = virtual_cells.query_advice(res.x, Rotation::cur());
+            let y = virtual_cells.query_advice(res.y, Rotation::cur());
+            let z = virtual_cells.query_advice(res.z, Rotation::cur());
+            let a = virtual_cells.query_fixed(res.a, Rotation::cur());
+            let b = virtual_cells.query_fixed(res.b, Rotation::cur());
+            let c = virtual_cells.query_fixed(res.c, Rotation::cur());
+            let d = virtual_cells.query_fixed(res.d, Rotation::cur());
+            let e = virtual_cells.query_fixed(res.e, Rotation::cur());
+
+            // Produce the constraint for the current row. We require that the
+            // expression given in the brackets equals 0.
+            vec![sel * (a * x.clone() + b * y.clone() + c * z + d * x * y + e)]
+        });
+
+        res
+    }
+
+    // TODO: ensure this function adds all the necessary copy constraints (when
+    // the same advice value is reused) to make sure that adversarial prover
+    // can't cheat.
+    fn synthesize(
+        self,
+        mut layouter: impl Layouter<F>,
+        g: &Gate<F>
+    ) -> Result<(), Error> {
+        layouter.assign_region(|| format!("synthesize {:?}", g), |mut region| {
+            // TODO: Figure out what is this offset value
+            let offset = 0;
+
+            // Enable constraint
+            self.sel.enable(&mut region, offset);
+
+            // Assign the advice values in the current row. Save the
+            region.assign_advice(|| format!("x = {:?}", g.x), self.x, offset, || Value { inner: g.x })?;
+            region.assign_advice(|| format!("y = {:?}", g.y), self.y, offset, || Value { inner: g.y })?;
+            region.assign_advice(|| format!("z = {:?}", g.z), self.z, offset, || Value { inner: g.z })?;
+
+            // Assign the fixed values in the current row
+            region.assign_fixed(|| format!("a = {:?}", g.a), self.a, offset, g.a)?;
+            region.assign_fixed(|| format!("b = {:?}", g.b), self.b, offset, g.b)?;
+            region.assign_fixed(|| format!("c = {:?}", g.c), self.c, offset, g.c)?;
+            region.assign_fixed(|| format!("d = {:?}", g.d), self.d, offset, g.d)?;
+            region.assign_fixed(|| format!("e = {:?}", g.e), self.e, offset, g.e)?;
+
+            Ok(())
+        })
+    }
+}
+
+impl<F: Field + PrimeField> Circuit<F> for BuildCS<F> {
+    type Config = FawkesGateConfig<F>;
+    type FloorPlanner = SimpleFloorPlanner;
+
+    fn without_witnesses(&self) -> Self {
+        BuildCS {
+            values: self.values.iter().map(|_| None).collect(),
+            gates: self.gates.clone(),
+            tracking: self.tracking,
+            public: self.public.clone(),
+        }
+    }
+
+    fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+        panic!()
+    }
+
+    fn synthesize(
+        &self, config: Self::Config,
+        layouter: impl Layouter<F>) -> Result<(), Error> {
+        panic!()
     }
 }
