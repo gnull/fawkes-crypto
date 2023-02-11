@@ -32,8 +32,30 @@ pub struct FawkesGateValues<F: Field + PrimeField> {
 }
 
 impl<F: Field + PrimeField> FawkesGateValues<F> {
-    fn from_gate_cs(g: &Gate<F>, cs: &BuildCS<F>) -> Self {
-        unimplemented!()
+    fn extract_gates(cs: &BuildCS<F>) -> Vec<Self> {
+        // Sort the vector for quick binary search
+        let public: Vec<_> = itertools::sorted(cs.public.iter()).collect();
+        let values = &cs.values;
+
+        let get_value = |i| {
+            match (*values)[i] {
+                None => Value::unknown(),
+                Some(x) => Value::known(x.clone().0),
+            }
+        };
+
+        cs.gates.iter().map(|g| {
+            FawkesGateValues {
+                x: get_value(g.x),
+                y: get_value(g.y),
+                z: get_value(g.z),
+                a: g.a.0,
+                b: g.b.0,
+                c: g.c.0,
+                d: g.d.0,
+                e: g.e.0
+            }
+        }).collect()
     }
 }
 
@@ -109,6 +131,8 @@ impl<F: Field + PrimeField> FawkesGateConfig<F> {
     // TODO: ensure this function adds all the necessary copy constraints (when
     // the same advice value is reused) to make sure that adversarial prover
     // can't cheat.
+    //
+    // Also: correctly expose inputs.
     fn synthesize(
         &self,
         mut layouter: impl Layouter<F>,
@@ -160,8 +184,9 @@ impl<F: Field + PrimeField> Circuit<F> for BuildCS<F> {
         config: Self::Config,
         mut layouter: impl Layouter<F>
     ) -> Result<(), Error> {
-        for (i, g) in self.gates.iter().enumerate() {
-            config.synthesize(layouter.namespace(|| format!("gate #{}", i)), &FawkesGateValues::from_gate_cs(g, self))?
+        let gates = FawkesGateValues::extract_gates(self);
+        for (i, g) in gates.iter().enumerate() {
+            config.synthesize(layouter.namespace(|| format!("gate #{}", i)), g)?
         }
         Ok(())
     }
