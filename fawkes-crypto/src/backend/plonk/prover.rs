@@ -16,14 +16,55 @@ use crate::{
   ff_uint::{Num, PrimeField},
 };
 
+/// We use this struct to hold a value of Instance or Advice element while
+/// synthesizing the halo2 circuit. Initially, `SmartValue` holds its `Value`,
+/// but after being assigned to some cell, it memorizes the cell instead and
+/// all future assignments are implemented via copy constraint with the
+/// original cell. (Just directly assigning the `Value` each time is
+/// incorrrect, since that can allow a malicious prover to assign different
+/// values each time.)
+#[derive(Clone, Debug)]
+pub struct SmartValue<F: Field + PrimeField> {
+    /// The `Value` or the cell where it was assigned the first time.
+    v: either::Either<Value<F>, AssignedCell<F, F>>,
+    /// Tells whether this value should be exposed as a public input upon first
+    /// assignment.
+    is_input: bool,
+}
+
+impl<F: Field + PrimeField> SmartValue<F> {
+    fn new(v: Value<F>, is_input: bool) -> Self {
+        SmartValue { v: Left(v), is_input }
+    };
+    /// Assign this value to a region cell (given by column and offset)
+    fn assign(
+        &mut self,
+        region: &mut Region<F>,
+        column: Column<Advice>,
+        offset: usize,
+    ) -> Result<(), Error> {
+        match *self.v {
+            Left(v) => {
+                let v = region.assign_advice(|| format!("{:?}", v), column, offset, || v)?;
+                self.v = Right(v);
+            },
+            Right(c) => {
+                c.copy_advice()
+            },
+        }
+
+        
+    };
+}
+
 /// Just like `Gate`, but with concrete `F` values in place and wrapped in
 /// `Value`. The `x`, `y` and `z` are allowed to be missing since they are from
 /// advice, while the fixed fields must have concrete values.
 #[derive(Clone, Debug)]
 pub struct FawkesGateValues<F: Field + PrimeField> {
-    x: Value<F>,
-    y: Value<F>,
-    z: Value<F>,
+    x: SmartValue<F>,
+    y: SmartValue<F>,
+    z: SmartValue<F>,
     a: F,
     b: F,
     c: F,
@@ -34,16 +75,23 @@ pub struct FawkesGateValues<F: Field + PrimeField> {
 impl<F: Field + PrimeField> FawkesGateValues<F> {
     fn extract_gates(cs: &BuildCS<F>) -> Vec<Self> {
         use std::ops::Index;
+        use either::Either;
         // Sort the vector for quick binary search
         let public: Vec<_> = itertools::sorted(cs.public.iter()).collect();
         let values = &cs.values;
 
-        let get_value = |i| {
+        let get_value = |i: usize| {
             let x: &Option<Num<F>> = values.index(i);
-            match x {
+            let v = match x {
                 None => Value::unknown(),
                 Some(x) => Value::known(x.0),
-            }
+            };
+            let is_input = match public.binary_search(&&i) {
+                Ok(_) => true,
+                Err(_) => false,
+            };
+            let v = Left(v);
+            SmartValue { v, is_input }
         };
 
         cs.gates.iter().map(|g| {
@@ -141,7 +189,8 @@ impl<F: Field + PrimeField> FawkesGateConfig<F> {
         g: &FawkesGateValues<F>
     ) -> Result<(), Error> {
         layouter.assign_region(|| format!("synthesize {:?}", g), |mut region| {
-            // TODO: Figure out what is this offset value exactly
+            // Row offset with respect to current region. We put all the values
+            // in one row, so offset is always 0.
             let offset = 0;
 
             // Enable constraint

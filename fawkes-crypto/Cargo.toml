@@ -30,6 +30,7 @@ halo2 = { git = "https://github.com/zcash/halo2.git", rev = "9dfc5d9393844f96e8c
 halo2_proofs = { git = "https://github.com/zcash/halo2.git", rev = "9dfc5d9393844f96e8c7901c6ecbd913e259f7f4", optional = true }
 halo2_gadgets = { git = "https://github.com/zcash/halo2.git", rev = "9dfc5d9393844f96e8c7901c6ecbd913e259f7f4", optional = true }
 group = { version = "0.13", optional = true }
+either = { version = "1.8" }
 
 [dependencies.blake2_rfc]
 version = "0.0.1"
