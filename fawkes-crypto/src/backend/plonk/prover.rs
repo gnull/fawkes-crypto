@@ -16,6 +16,8 @@ use crate::{
   ff_uint::{Num, PrimeField},
 };
 
+use either::Either::*;
+
 /// We use this struct to hold a value of Instance or Advice element while
 /// synthesizing the halo2 circuit. Initially, `SmartValue` holds its `Value`,
 /// but after being assigned to some cell, it memorizes the cell instead and
@@ -35,7 +37,7 @@ pub struct SmartValue<F: Field + PrimeField> {
 impl<F: Field + PrimeField> SmartValue<F> {
     fn new(v: Value<F>, is_input: bool) -> Self {
         SmartValue { v: Left(v), is_input }
-    };
+    }
     /// Assign this value to a region cell (given by column and offset)
     fn assign(
         &mut self,
@@ -43,18 +45,18 @@ impl<F: Field + PrimeField> SmartValue<F> {
         column: Column<Advice>,
         offset: usize,
     ) -> Result<(), Error> {
-        match *self.v {
+        match &self.v {
             Left(v) => {
-                let v = region.assign_advice(|| format!("{:?}", v), column, offset, || v)?;
+                let v = region.assign_advice(|| format!("{:?}", v), column, offset, || v.clone())?;
                 self.v = Right(v);
+                // TODO: expose v if it's input here
             },
             Right(c) => {
-                c.copy_advice()
+                c.copy_advice(|| "advice copy", region, column, offset)?;
             },
         }
-
-        
-    };
+        Ok(())
+    }
 }
 
 /// Just like `Gate`, but with concrete `F` values in place and wrapped in
@@ -75,7 +77,6 @@ pub struct FawkesGateValues<F: Field + PrimeField> {
 impl<F: Field + PrimeField> FawkesGateValues<F> {
     fn extract_gates(cs: &BuildCS<F>) -> Vec<Self> {
         use std::ops::Index;
-        use either::Either;
         // Sort the vector for quick binary search
         let public: Vec<_> = itertools::sorted(cs.public.iter()).collect();
         let values = &cs.values;
@@ -178,17 +179,13 @@ impl<F: Field + PrimeField> FawkesGateConfig<F> {
         res
     }
 
-    // TODO: ensure this function adds all the necessary copy constraints (when
-    // the same advice value is reused) to make sure that adversarial prover
-    // can't cheat.
-    //
-    // Also: correctly expose inputs.
+    // TODO: correctly expose inputs.
     fn synthesize(
         &self,
         mut layouter: impl Layouter<F>,
-        g: &FawkesGateValues<F>
+        mut g: FawkesGateValues<F>
     ) -> Result<(), Error> {
-        layouter.assign_region(|| format!("synthesize {:?}", g), |mut region| {
+        layouter.assign_region(|| format!("synthesize gate {:?}", ()), |mut region| {
             // Row offset with respect to current region. We put all the values
             // in one row, so offset is always 0.
             let offset = 0;
@@ -197,9 +194,9 @@ impl<F: Field + PrimeField> FawkesGateConfig<F> {
             self.sel.enable(&mut region, offset)?;
 
             // Assign the advice values in the current row. Save the
-            region.assign_advice(|| format!("x = {:?}", g.x), self.x, offset, || g.x)?;
-            region.assign_advice(|| format!("y = {:?}", g.y), self.y, offset, || g.y)?;
-            region.assign_advice(|| format!("z = {:?}", g.z), self.z, offset, || g.z)?;
+            g.x.assign(&mut region, self.x, offset);
+            g.y.assign(&mut region, self.y, offset);
+            g.z.assign(&mut region, self.z, offset);
 
             // Assign the fixed values in the current row
             region.assign_fixed(|| format!("a = {:?}", g.a), self.a, offset, || Value::known(g.a))?;
@@ -236,7 +233,7 @@ impl<F: Field + PrimeField> Circuit<F> for BuildCS<F> {
         mut layouter: impl Layouter<F>
     ) -> Result<(), Error> {
         let gates = FawkesGateValues::extract_gates(self);
-        for (i, g) in gates.iter().enumerate() {
+        for (i, g) in gates.into_iter().enumerate() {
             config.synthesize(layouter.namespace(|| format!("gate #{}", i)), g)?
         }
         Ok(())
