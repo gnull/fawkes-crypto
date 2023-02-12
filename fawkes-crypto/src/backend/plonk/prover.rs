@@ -33,14 +33,16 @@ pub struct FawkesGateValues<F: Field + PrimeField> {
 
 impl<F: Field + PrimeField> FawkesGateValues<F> {
     fn extract_gates(cs: &BuildCS<F>) -> Vec<Self> {
+        use std::ops::Index;
         // Sort the vector for quick binary search
         let public: Vec<_> = itertools::sorted(cs.public.iter()).collect();
         let values = &cs.values;
 
         let get_value = |i| {
-            match (*values)[i] {
+            let x: &Option<Num<F>> = values.index(i);
+            match x {
                 None => Value::unknown(),
-                Some(x) => Value::known(x.clone().0),
+                Some(x) => Value::known(x.0),
             }
         };
 
