@@ -19,39 +19,63 @@ use crate::{
 use either::Either::*;
 
 /// We use this struct to hold a value of Instance or Advice element while
-/// synthesizing the halo2 circuit. Initially, `SmartValue` holds its `Value`,
-/// but after being assigned to some cell, it memorizes the cell instead and
-/// all future assignments are implemented via copy constraint with the
-/// original cell. (Just directly assigning the `Value` each time is
-/// incorrrect, since that can allow a malicious prover to assign different
-/// values each time.)
+/// synthesizing the halo2 circuit. Initially, `ValueReference` holds its
+/// `Value` or its index in the instance vector, but after being assigned to
+/// some cell, it memorizes the cell instead and all future assignments are
+/// implemented via copy constraint with the original cell.
+///
+/// (Just directly assigning the `Value` each time is incorrrect, since that
+/// can allow a malicious prover to assign different values each time.)
 #[derive(Clone, Debug)]
-pub struct SmartValue<F: Field + PrimeField> {
+pub enum ValueReference<F: Field + PrimeField> {
     /// The `Value` or the cell where it was assigned the first time.
-    v: either::Either<Value<F>, AssignedCell<F, F>>,
-    /// Tells whether this value should be exposed as a public input upon first
-    /// assignment.
-    input_id: Option<usize>,
+    ValueAdvice(Value<F>),
+    /// The index of instance element that should be assigned here.
+    ValueInstance(usize),
+    /// The index of a cell where this value was already assigned (so just
+    /// refer to that cell via a copy constraint if you need a value)
+    ValueCell(AssignedCell<F, F>),
 }
 
-impl<F: Field + PrimeField> SmartValue<F> {
-    fn new(v: Value<F>, input_id: Option<usize>) -> Self {
-        SmartValue { v: Left(v), input_id }
+impl<F: Field + PrimeField> ValueReference<F> {
+    fn new_advice(v: Value<F>) -> Self {
+        ValueReference::ValueAdvice(v)
+    }
+    fn new_instance(i: usize) -> Self {
+        ValueReference::ValueInstance(i)
     }
     /// Assign this value to a region cell (given by column and offset)
     fn assign(
         &mut self,
         region: &mut Region<F>,
-        column: Column<Advice>,
+        instance: Column<Instance>,
+        advice: Column<Advice>,
         offset: usize,
     ) -> Result<(), Error> {
-        match &self.v {
-            Left(v) => {
-                let v = region.assign_advice(|| format!("{:?}", v), column, offset, || v.clone())?;
-                self.v = Right(v);
+        match self {
+            ValueReference::ValueAdvice(v) => {
+                // Assign the value for the first time
+                let c = region.assign_advice(
+                    || format!("{:?}", v),
+                    advice,
+                    offset,
+                    || v.clone()
+                )?;
+                *self = ValueReference::ValueCell(c);
             },
-            Right(c) => {
-                c.copy_advice(|| "advice copy", region, column, offset)?;
+            ValueReference::ValueInstance(i) => {
+                // If our value is an input instance element, copy it from there
+                region.assign_advice_from_instance(
+                    || format!("input #{:?}", i),
+                    instance,
+                    *i,
+                    advice,
+                    offset
+                );
+            },
+            ValueReference::ValueCell(c) => {
+                // If we've already assigned this value somewhere, copy from there
+                c.copy_advice(|| "advice copy", region, advice, offset)?;
             },
         }
         Ok(())
@@ -63,9 +87,9 @@ impl<F: Field + PrimeField> SmartValue<F> {
 /// advice, while the fixed fields must have concrete values.
 #[derive(Clone, Debug)]
 pub struct FawkesGateValues<F: Field + PrimeField> {
-    x: SmartValue<F>,
-    y: SmartValue<F>,
-    z: SmartValue<F>,
+    x: ValueReference<F>,
+    y: ValueReference<F>,
+    z: ValueReference<F>,
     a: F,
     b: F,
     c: F,
@@ -74,27 +98,25 @@ pub struct FawkesGateValues<F: Field + PrimeField> {
 }
 
 impl<F: Field + PrimeField> FawkesGateValues<F> {
-    fn extract_gates(cs: &BuildCS<F>) -> Vec<Self> {
+    fn extract_gates(
+        values: &Vec<Option<F>>,
+        gates: &Vec<Gate<F>>,
+        public: &Vec<usize>
+    ) -> Vec<Self> {
         use std::ops::Index;
-        // Sort the vector for quick binary search
-        let public: Vec<_> = itertools::sorted(cs.public.iter()).collect();
-        let values = &cs.values;
-
         let get_value = |i: usize| {
-            let x: &Option<Num<F>> = values.index(i);
+            let x: &Option<F> = values.index(i);
             let v = match x {
                 None => Value::unknown(),
-                Some(x) => Value::known(x.0),
+                Some(x) => Value::known(x.clone()),
             };
-            let input_id = match public.binary_search(&&i) {
-                Ok(i) => Some(i),
-                Err(_) => None,
-            };
-            let v = Left(v);
-            SmartValue { v, input_id }
+            match public.binary_search(&&i) {
+                Ok(i) => ValueReference::new_instance(i),
+                Err(_) => ValueReference::new_advice(v),
+            }
         };
 
-        cs.gates.iter().map(|g| {
+        gates.iter().map(|g| {
             FawkesGateValues {
                 x: get_value(g.x),
                 y: get_value(g.y),
@@ -201,9 +223,9 @@ impl<F: Field + PrimeField> FawkesGateConfig<F> {
             self.sel.enable(&mut region, offset)?;
 
             // Assign the advice values in the current row. Save the
-            g.x.assign(&mut region, self.x, offset);
-            g.y.assign(&mut region, self.y, offset);
-            g.z.assign(&mut region, self.z, offset);
+            g.x.assign(&mut region, self.inst, self.x, offset);
+            g.y.assign(&mut region, self.inst, self.y, offset);
+            g.z.assign(&mut region, self.inst, self.z, offset);
 
             // Assign the fixed values in the current row
             region.assign_fixed(|| format!("a = {:?}", g.a), self.a, offset, || Value::known(g.a))?;
@@ -239,7 +261,12 @@ impl<F: Field + PrimeField> Circuit<F> for BuildCS<F> {
         config: Self::Config,
         mut layouter: impl Layouter<F>
     ) -> Result<(), Error> {
-        let gates = FawkesGateValues::extract_gates(self);
+        // Sort the vector for quick binary search
+        let public: Vec<usize> = itertools::sorted(self.public.iter().cloned()).collect();
+        // Remove Num wrappers
+        let values = self.values.iter().map(|v| v.map(|Num(u)| u)).collect();
+
+        let gates = FawkesGateValues::extract_gates(&values, &self.gates, &public);
         for (i, g) in gates.into_iter().enumerate() {
             config.synthesize(layouter.namespace(|| format!("gate #{}", i)), g)?
         }
