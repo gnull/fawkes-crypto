@@ -31,12 +31,12 @@ pub struct SmartValue<F: Field + PrimeField> {
     v: either::Either<Value<F>, AssignedCell<F, F>>,
     /// Tells whether this value should be exposed as a public input upon first
     /// assignment.
-    is_input: bool,
+    input_id: Option<usize>,
 }
 
 impl<F: Field + PrimeField> SmartValue<F> {
-    fn new(v: Value<F>, is_input: bool) -> Self {
-        SmartValue { v: Left(v), is_input }
+    fn new(v: Value<F>, input_id: Option<usize>) -> Self {
+        SmartValue { v: Left(v), input_id }
     }
     /// Assign this value to a region cell (given by column and offset)
     fn assign(
@@ -49,7 +49,6 @@ impl<F: Field + PrimeField> SmartValue<F> {
             Left(v) => {
                 let v = region.assign_advice(|| format!("{:?}", v), column, offset, || v.clone())?;
                 self.v = Right(v);
-                // TODO: expose v if it's input here
             },
             Right(c) => {
                 c.copy_advice(|| "advice copy", region, column, offset)?;
@@ -87,12 +86,12 @@ impl<F: Field + PrimeField> FawkesGateValues<F> {
                 None => Value::unknown(),
                 Some(x) => Value::known(x.0),
             };
-            let is_input = match public.binary_search(&&i) {
-                Ok(_) => true,
-                Err(_) => false,
+            let input_id = match public.binary_search(&&i) {
+                Ok(i) => Some(i),
+                Err(_) => None,
             };
             let v = Left(v);
-            SmartValue { v, is_input }
+            SmartValue { v, input_id }
         };
 
         cs.gates.iter().map(|g| {
@@ -123,6 +122,8 @@ pub struct FawkesGateConfig<F: Field + PrimeField> {
     e: Column<Fixed>,
     /// Selector that enables/disables the equation for a specific row
     sel: Selector,
+    /// The row where we expose inputs when we need to
+    inst: Column<Instance>,
     _marker: PhantomData<F>,
 }
 
@@ -134,22 +135,29 @@ impl<F: Field + PrimeField> FawkesGateConfig<F> {
         // We allocate the columns over which we will be defining our gate. We
         // also enable equality constraints for each of the three advice gates.
         let res = {
+            let inst = meta.instance_column();
+            meta.enable_equality(inst);
+
             let make_advice = &mut || {
                 let c = meta.advice_column();
                 meta.enable_equality(c);
                 c
             };
+            let x = make_advice();
+            let y = make_advice();
+            let z = make_advice();
 
             Self {
-                x: make_advice(),
-                y: make_advice(),
-                z: make_advice(),
+                x,
+                y,
+                z,
                 a: meta.fixed_column(),
                 b: meta.fixed_column(),
                 c: meta.fixed_column(),
                 d: meta.fixed_column(),
                 e: meta.fixed_column(),
                 sel: meta.selector(),
+                inst,
                 _marker: PhantomData,
             }
         };
@@ -179,7 +187,6 @@ impl<F: Field + PrimeField> FawkesGateConfig<F> {
         res
     }
 
-    // TODO: correctly expose inputs.
     fn synthesize(
         &self,
         mut layouter: impl Layouter<F>,
