@@ -71,7 +71,7 @@ impl<F: Field + PrimeField> ValueReference<F> {
                     *i,
                     advice,
                     offset
-                );
+                )?;
             },
             ValueReference::ValueCell(c) => {
                 // If we've already assigned this value somewhere, copy from there
@@ -223,9 +223,9 @@ impl<F: Field + PrimeField> FawkesGateConfig<F> {
             self.sel.enable(&mut region, offset)?;
 
             // Assign the advice values in the current row. Save the
-            g.x.assign(&mut region, self.inst, self.x, offset);
-            g.y.assign(&mut region, self.inst, self.y, offset);
-            g.z.assign(&mut region, self.inst, self.z, offset);
+            g.x.assign(&mut region, self.inst, self.x, offset)?;
+            g.y.assign(&mut region, self.inst, self.y, offset)?;
+            g.z.assign(&mut region, self.inst, self.z, offset)?;
 
             // Assign the fixed values in the current row
             region.assign_fixed(|| format!("a = {:?}", g.a), self.a, offset, || Value::known(g.a))?;
