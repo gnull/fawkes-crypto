@@ -16,8 +16,8 @@ use crate::{
   ff_uint::{Num, PrimeField},
 };
 
-/// This runs a `MockProver` on a `BuildCS` value. Returns `Ok(true)` if
-/// circuit was built and verified correctly.
+/// This runs a `MockProver` on a `BuildCS` value. Returns `true` if circuit
+/// was built and verified correctly.
 pub fn mock_prove<F: Field + PrimeField + Ord>(cs: &BuildCS<F>) -> bool {
     use std::cmp::max;
 
