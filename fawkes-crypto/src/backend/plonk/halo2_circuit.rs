@@ -16,8 +16,6 @@ use crate::{
   ff_uint::{Num, PrimeField},
 };
 
-use either::Either::*;
-
 /// We use this struct to hold a value of Instance or Advice element while
 /// synthesizing the halo2 circuit. Initially, `ValueReference` holds its
 /// `Value` or its index in the instance vector, but after being assigned to
