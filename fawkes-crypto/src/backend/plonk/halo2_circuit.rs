@@ -220,7 +220,7 @@ impl<F: Field + PrimeField> FawkesGateConfig<F> {
             // Enable constraint
             self.sel.enable(&mut region, offset)?;
 
-            // Assign the advice values in the current row. Save the
+            // Assign the advice values in the current row.
             g.x.assign(&mut region, self.inst, self.x, offset)?;
             g.y.assign(&mut region, self.inst, self.y, offset)?;
             g.z.assign(&mut region, self.inst, self.z, offset)?;
