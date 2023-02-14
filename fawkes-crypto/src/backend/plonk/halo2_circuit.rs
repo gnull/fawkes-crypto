@@ -1,7 +1,8 @@
 use std::{marker::PhantomData, iter};
 
-use group::{ff::Field, prime::PrimeCurve};
+// use group::{ff::Field, prime::PrimeCurve};
 use halo2_proofs::{
+    arithmetic::{Field},
     circuit::{AssignedCell, Chip, Layouter, Region, SimpleFloorPlanner, Value},
     plonk::{Advice, Any, Circuit, Column, ConstraintSystem, Error, Fixed, Instance, Selector},
     poly::Rotation, // dev::metadata::Column,
@@ -153,7 +154,7 @@ impl<F: Field + PrimeField> FawkesGateConfig<F> {
     /// or the rows that we will occupy yet.)
     fn config(meta: &mut ConstraintSystem<F>) -> Self {
         // We allocate the columns over which we will be defining our gate. We
-        // also enable equality constraints for each of the three advice gates.
+        // also enable equality constraints for each of the three advice columns.
         let res = {
             let inst = meta.instance_column();
             meta.enable_equality(inst);

@@ -26,9 +26,9 @@ getrandom = { version = "0.2", optional = true }
 bit-vec = "0.6.3"
 itertools = "0.10.1"
 brotli = "3.3.2"
-halo2 = { git = "https://github.com/zcash/halo2.git", rev = "9dfc5d9393844f96e8c7901c6ecbd913e259f7f4", optional = true }
-halo2_proofs = { git = "https://github.com/zcash/halo2.git", rev = "9dfc5d9393844f96e8c7901c6ecbd913e259f7f4", optional = true }
-halo2_gadgets = { git = "https://github.com/zcash/halo2.git", rev = "9dfc5d9393844f96e8c7901c6ecbd913e259f7f4", optional = true }
+halo2 = { git = "https://github.com/privacy-scaling-explorations/halo2.git", rev = "c85ab013f793bec229450c9baa7422ae96ec119f", optional = true }
+halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git", rev = "c85ab013f793bec229450c9baa7422ae96ec119f", optional = true }
+halo2_gadgets = { git = "https://github.com/privacy-scaling-explorations/halo2.git", rev = "c85ab013f793bec229450c9baa7422ae96ec119f", optional = true }
 group = { version = "0.13", optional = true }
 either = { version = "1.8" }
 
