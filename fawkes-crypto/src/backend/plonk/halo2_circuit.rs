@@ -87,40 +87,6 @@ pub struct FawkesGateValues<F: FieldExt> {
     e: F,
 }
 
-impl<F: FieldExt> FawkesGateValues<F> {
-    fn extract_gates(
-        values: &Vec<Option<F>>,
-        gates: &Vec<Gate<F>>,
-        public: &Vec<usize>
-    ) -> Vec<Self> {
-        use std::ops::Index;
-        let get_value = |i: usize| {
-            let x: &Option<F> = values.index(i);
-            let v = match x {
-                None => Value::unknown(),
-                Some(x) => Value::known(x.clone()),
-            };
-            match public.binary_search(&&i) {
-                Ok(i) => ValueReference::new_instance(i),
-                Err(_) => ValueReference::new_advice(v),
-            }
-        };
-
-        gates.iter().map(|g| {
-            FawkesGateValues {
-                x: get_value(g.x),
-                y: get_value(g.y),
-                z: get_value(g.z),
-                a: g.a,
-                b: g.b,
-                c: g.c,
-                d: g.d,
-                e: g.e
-            }
-        }).collect()
-    }
-}
-
 /// a*x + b*y + c*z + d*x*y + e == 0
 #[derive(Clone, Debug)]
 pub struct FawkesGateConfig<F: FieldExt> {
@@ -229,23 +195,8 @@ impl<F: FieldExt> FawkesGateConfig<F> {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct Gate<Fr: FieldExt> {
-    pub a: Fr,
-    pub x: usize,
-    pub b: Fr,
-    pub y: usize,
-    pub c: Fr,
-    pub z: usize,
-    pub d: Fr,
-    pub e: Fr,
-}
-
 pub struct PlonkCS<Fr: FieldExt> {
-    pub values: Vec<Option<Fr>>,
-    pub gates: Vec<Gate<Fr>>,
-    pub tracking: bool,
-    pub public: Vec<usize>,
+    pub gates: Vec<FawkesGateValues<Fr>>,
 }
 
 impl<F: FieldExt> Circuit<F> for PlonkCS<F> {
@@ -254,10 +205,7 @@ impl<F: FieldExt> Circuit<F> for PlonkCS<F> {
 
     fn without_witnesses(&self) -> Self {
         PlonkCS {
-            values: self.values.iter().map(|_| None).collect(),
-            gates: self.gates.clone(),
-            tracking: self.tracking,
-            public: self.public.clone(),
+            gates: unimplemented!(),
         }
     }
 
@@ -271,19 +219,63 @@ impl<F: FieldExt> Circuit<F> for PlonkCS<F> {
         mut layouter: impl Layouter<F>
     ) -> Result<(), Error> {
         // Sort the vector for quick binary search
-        let public: Vec<usize> = itertools::sorted(self.public.iter().cloned()).collect();
-        let values = &self.values;
 
-        let gates = FawkesGateValues::extract_gates(values, &self.gates, &public);
-        for (i, g) in gates.into_iter().enumerate() {
+        for (i, g) in self.gates.clone().into_iter().enumerate() {
             config.synthesize(layouter.namespace(|| format!("gate #{}", i)), g)?
         }
         Ok(())
     }
 }
 
-pub fn extract_inputs<F: FieldExt>(cs: &PlonkCS<F>) -> Vec<Option<F>> {
-    itertools::sorted(cs.public.iter().cloned())
-        .map(|i| cs.values[i])
-        .collect()
-}
+// #[derive(Clone, Debug)]
+// pub struct Gate<Fr: FieldExt> {
+//     pub a: Fr,
+//     pub x: usize,
+//     pub b: Fr,
+//     pub y: usize,
+//     pub c: Fr,
+//     pub z: usize,
+//     pub d: Fr,
+//     pub e: Fr,
+// }
+
+// impl<F: FieldExt> FawkesGateValues<F> {
+//     fn extract_gates(
+//         values: &Vec<Option<F>>,
+//         gates: &Vec<Gate<F>>,
+//         public: &Vec<usize>
+//     ) -> Vec<Self> {
+//         // let public: Vec<usize> = itertools::sorted(self.public.iter().cloned()).collect();
+//         use std::ops::Index;
+//         let get_value = |i: usize| {
+//             let x: &Option<F> = values.index(i);
+//             let v = match x {
+//                 None => Value::unknown(),
+//                 Some(x) => Value::known(x.clone()),
+//             };
+//             match public.binary_search(&&i) {
+//                 Ok(i) => ValueReference::new_instance(i),
+//                 Err(_) => ValueReference::new_advice(v),
+//             }
+//         };
+//
+//         gates.iter().map(|g| {
+//             FawkesGateValues {
+//                 x: get_value(g.x),
+//                 y: get_value(g.y),
+//                 z: get_value(g.z),
+//                 a: g.a,
+//                 b: g.b,
+//                 c: g.c,
+//                 d: g.d,
+//                 e: g.e
+//             }
+//         }).collect()
+//     }
+// }
+
+// pub fn extract_inputs<F: FieldExt>(cs: &PlonkCS<F>) -> Vec<Option<F>> {
+//     itertools::sorted(cs.public.iter().cloned())
+//         .map(|i| cs.values[i])
+//         .collect()
+// }
