@@ -2,19 +2,10 @@ use std::{marker::PhantomData, iter};
 
 // use group::{ff::Field, prime::PrimeCurve};
 use halo2_proofs::{
-    arithmetic::{Field},
+    arithmetic::{FieldExt},
     circuit::{AssignedCell, Chip, Layouter, Region, SimpleFloorPlanner, Value},
     plonk::{Advice, Any, Circuit, Column, ConstraintSystem, Error, Fixed, Instance, Selector},
     poly::Rotation, // dev::metadata::Column,
-};
-
-use crate::{
-  circuit::{
-    cs::*,
-    num::*,
-    bool::*,
-  },
-  ff_uint::{Num, PrimeField},
 };
 
 /// We use this struct to hold a value of Instance or Advice element while
@@ -26,7 +17,7 @@ use crate::{
 /// (Just directly assigning the `Value` each time is incorrrect, since that
 /// can allow a malicious prover to assign different values each time.)
 #[derive(Clone, Debug)]
-pub enum ValueReference<F: Field + PrimeField> {
+pub enum ValueReference<F: FieldExt> {
     /// The `Value` or the cell where it was assigned the first time.
     ValueAdvice(Value<F>),
     /// The index of instance element that should be assigned here.
@@ -36,7 +27,7 @@ pub enum ValueReference<F: Field + PrimeField> {
     ValueCell(AssignedCell<F, F>),
 }
 
-impl<F: Field + PrimeField> ValueReference<F> {
+impl<F: FieldExt> ValueReference<F> {
     fn new_advice(v: Value<F>) -> Self {
         ValueReference::ValueAdvice(v)
     }
@@ -85,7 +76,7 @@ impl<F: Field + PrimeField> ValueReference<F> {
 /// `Value`. The `x`, `y` and `z` are allowed to be missing since they are from
 /// advice, while the fixed fields must have concrete values.
 #[derive(Clone, Debug)]
-pub struct FawkesGateValues<F: Field + PrimeField> {
+pub struct FawkesGateValues<F: FieldExt> {
     x: ValueReference<F>,
     y: ValueReference<F>,
     z: ValueReference<F>,
@@ -96,7 +87,7 @@ pub struct FawkesGateValues<F: Field + PrimeField> {
     e: F,
 }
 
-impl<F: Field + PrimeField> FawkesGateValues<F> {
+impl<F: FieldExt> FawkesGateValues<F> {
     fn extract_gates(
         values: &Vec<Option<F>>,
         gates: &Vec<Gate<F>>,
@@ -120,11 +111,11 @@ impl<F: Field + PrimeField> FawkesGateValues<F> {
                 x: get_value(g.x),
                 y: get_value(g.y),
                 z: get_value(g.z),
-                a: g.a.0,
-                b: g.b.0,
-                c: g.c.0,
-                d: g.d.0,
-                e: g.e.0
+                a: g.a,
+                b: g.b,
+                c: g.c,
+                d: g.d,
+                e: g.e
             }
         }).collect()
     }
@@ -132,7 +123,7 @@ impl<F: Field + PrimeField> FawkesGateValues<F> {
 
 /// a*x + b*y + c*z + d*x*y + e == 0
 #[derive(Clone, Debug)]
-pub struct FawkesGateConfig<F: Field + PrimeField> {
+pub struct FawkesGateConfig<F: FieldExt> {
     x: Column<Advice>,
     y: Column<Advice>,
     z: Column<Advice>,
@@ -148,7 +139,7 @@ pub struct FawkesGateConfig<F: Field + PrimeField> {
     _marker: PhantomData<F>,
 }
 
-impl<F: Field + PrimeField> FawkesGateConfig<F> {
+impl<F: FieldExt> FawkesGateConfig<F> {
     /// Allocate the columns this gate will be using, and describe the
     /// constraint equation it will enforce. (Without knowing the cell values
     /// or the rows that we will occupy yet.)
@@ -238,12 +229,31 @@ impl<F: Field + PrimeField> FawkesGateConfig<F> {
     }
 }
 
-impl<F: Field + PrimeField> Circuit<F> for BuildCS<F> {
+#[derive(Clone, Debug)]
+pub struct Gate<Fr: FieldExt> {
+    pub a: Fr,
+    pub x: usize,
+    pub b: Fr,
+    pub y: usize,
+    pub c: Fr,
+    pub z: usize,
+    pub d: Fr,
+    pub e: Fr,
+}
+
+pub struct PlonkCS<Fr: FieldExt> {
+    pub values: Vec<Option<Fr>>,
+    pub gates: Vec<Gate<Fr>>,
+    pub tracking: bool,
+    pub public: Vec<usize>,
+}
+
+impl<F: FieldExt> Circuit<F> for PlonkCS<F> {
     type Config = FawkesGateConfig<F>;
     type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {
-        BuildCS {
+        PlonkCS {
             values: self.values.iter().map(|_| None).collect(),
             gates: self.gates.clone(),
             tracking: self.tracking,
@@ -262,10 +272,9 @@ impl<F: Field + PrimeField> Circuit<F> for BuildCS<F> {
     ) -> Result<(), Error> {
         // Sort the vector for quick binary search
         let public: Vec<usize> = itertools::sorted(self.public.iter().cloned()).collect();
-        // Remove Num wrappers
-        let values = self.values.iter().map(|v| v.map(|Num(u)| u)).collect();
+        let values = &self.values;
 
-        let gates = FawkesGateValues::extract_gates(&values, &self.gates, &public);
+        let gates = FawkesGateValues::extract_gates(values, &self.gates, &public);
         for (i, g) in gates.into_iter().enumerate() {
             config.synthesize(layouter.namespace(|| format!("gate #{}", i)), g)?
         }
@@ -273,7 +282,7 @@ impl<F: Field + PrimeField> Circuit<F> for BuildCS<F> {
     }
 }
 
-pub fn extract_inputs<F: Field + PrimeField>(cs: &BuildCS<F>) -> Vec<Option<Num<F>>> {
+pub fn extract_inputs<F: FieldExt>(cs: &PlonkCS<F>) -> Vec<Option<F>> {
     itertools::sorted(cs.public.iter().cloned())
         .map(|i| cs.values[i])
         .collect()
