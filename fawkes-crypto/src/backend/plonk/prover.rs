@@ -37,3 +37,38 @@ pub fn mock_prove<Fx: PrimeField, Fy: FieldExt>(cs: BuildCS<Fx>) -> bool {
     let prover = MockProver::run(k, &cs, vec![ins]).unwrap();
     prover.verify().is_ok()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        circuit::{cs::{BuildCS, CS}, num::CNum},
+        core::{signal::Signal},
+        engines::bn256::Fr,
+        rand::{thread_rng, Rng},
+    };
+    use halo2curves::pasta::EqAffine;
+
+    #[test]
+    #[cfg(feature = "rand_support")]
+    fn test_mock_prover() {
+        use super::mock_prove;
+
+        let ref mut cs = BuildCS::<Fr>::rc_new(false);
+        let mut rng = thread_rng();
+
+        let _a = rng.gen();
+        let _b = rng.gen();
+        let _c = _a * _b * _b;
+
+        let a = CNum::alloc(cs, Some(&_a));
+        let b = CNum::alloc(cs, Some(&_b));
+
+        let c = a * &b * b;
+        c.inputize();
+
+        let cs = cs;
+
+        let res = mock_prove::<Fr, _>(cs.borrow().clone());
+        assert!(res, "mock prover failed!");
+    }
+}
