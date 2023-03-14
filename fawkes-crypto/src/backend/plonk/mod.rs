@@ -59,7 +59,11 @@ pub fn fawkes_cs_to_halo<Fx: PrimeField, Fy: FieldExt>(
     // TODO: Some .clone() operations in this implementation are
     // unnecessary. Remove them.
 
-    let public: Vec<usize> = itertools::sorted(cs.public.into_iter()).collect();
+    let public = {
+        let mut p = cs.public;
+        p.sort();
+        p
+    };
     let values: Vec<Option<Fy>> = cs.values
         .into_iter()
         .map(
@@ -68,31 +72,34 @@ pub fn fawkes_cs_to_halo<Fx: PrimeField, Fy: FieldExt>(
             )
         ).collect();
 
-    use std::ops::Index;
-    let get_value = |i: usize| {
-        let x: &Option<Fy> = values.index(i);
-        let v = match x {
-            None => Value::<Fy>::unknown(),
-            Some(x) => Value::known(x.clone()),
+    let g : Vec<_> = {
+        let get_value = |i: usize| {
+            use std::ops::Index;
+            let x: &Option<Fy> = values.index(i);
+            match public.binary_search(&&i) {
+                Ok(i) => ValueReference::new_instance(i),
+                Err(_) => ValueReference::new_advice(
+                    match x {
+                        None => Value::<Fy>::unknown(),
+                        Some(x) => Value::known(x.clone()),
+                    }
+                ),
+            }
         };
-        match public.binary_search(&&i) {
-            Ok(i) => ValueReference::new_instance(i),
-            Err(_) => ValueReference::new_advice(v),
-        }
-    };
 
-    let g : Vec<_> = cs.gates.iter().map(|g| {
-        FawkesGateValues {
-            x: get_value(g.x),
-            y: get_value(g.y),
-            z: get_value(g.z),
-            a: num_to_halo_fp(g.a),
-            b: num_to_halo_fp(g.b),
-            c: num_to_halo_fp(g.c),
-            d: num_to_halo_fp(g.d),
-            e: num_to_halo_fp(g.e),
-        }
-    }).collect();
+        cs.gates.iter().map(|g| {
+            FawkesGateValues {
+                x: get_value(g.x),
+                y: get_value(g.y),
+                z: get_value(g.z),
+                a: num_to_halo_fp(g.a),
+                b: num_to_halo_fp(g.b),
+                c: num_to_halo_fp(g.c),
+                d: num_to_halo_fp(g.d),
+                e: num_to_halo_fp(g.e),
+            }
+        }).collect()
+    };
 
     let ins = public.iter().map(|&i| values[i]).collect();
 
