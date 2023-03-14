@@ -46,7 +46,7 @@ mod tests {
         engines::bn256::Fr as FawkesFr,
         rand::{thread_rng, Rng},
     };
-    use halo2curves::bn256::Bn256 as HaloFr;
+    use halo2curves::bn256::Fr as HaloFr;
 
     #[test]
     #[cfg(feature = "rand_support")]

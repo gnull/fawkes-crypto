@@ -28,7 +28,7 @@ brotli = "3.3.2"
 halo2 = { git = "https://github.com/privacy-scaling-explorations/halo2.git", rev = "c85ab013f793bec229450c9baa7422ae96ec119f", optional = true }
 halo2_proofs = { git = "https://github.com/privacy-scaling-explorations/halo2.git", rev = "c85ab013f793bec229450c9baa7422ae96ec119f", optional = true }
 halo2_gadgets = { git = "https://github.com/privacy-scaling-explorations/halo2.git", rev = "c85ab013f793bec229450c9baa7422ae96ec119f", optional = true }
-halo2curves = { git = "https://github.com/privacy-scaling-explorations/halo2curves.git", rev = "152fce6105f4cb813e83c52831e68148976b3982", optional = true }
+halo2curves = { git = "https://github.com/privacy-scaling-explorations/halo2curves", tag = "0.2.1", optional = true }
 group = { version = "0.13", optional = true }
 either = { version = "1.8" }
 
