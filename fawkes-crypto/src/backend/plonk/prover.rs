@@ -43,17 +43,17 @@ mod tests {
     use crate::{
         circuit::{cs::{BuildCS, CS}, num::CNum},
         core::{signal::Signal},
-        engines::bn256::Fr,
+        engines::bn256::Fr as FawkesFr,
         rand::{thread_rng, Rng},
     };
-    use halo2curves::pasta::EqAffine;
+    use halo2curves::bn256::Bn256 as HaloFr;
 
     #[test]
     #[cfg(feature = "rand_support")]
     fn test_mock_prover() {
         use super::mock_prove;
 
-        let ref mut cs = BuildCS::<Fr>::rc_new(false);
+        let ref mut cs = BuildCS::<FawkesFr>::rc_new(false);
         let mut rng = thread_rng();
 
         let _a = rng.gen();
@@ -68,7 +68,7 @@ mod tests {
 
         let cs = cs;
 
-        let res = mock_prove::<Fr, _>(cs.borrow().clone());
+        let res = mock_prove::<FawkesFr, HaloFr>(cs.borrow().clone());
         assert!(res, "mock prover failed!");
     }
 }
