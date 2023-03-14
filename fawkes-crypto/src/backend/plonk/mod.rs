@@ -4,11 +4,16 @@ pub mod prover;
 pub mod verifier;
 pub mod standard_plonk_config;
 
-use crate::ff_uint::{Num, PrimeField};
+use crate::{ff_uint::{Num, PrimeField}, circuit::cs::BuildCS};
+use self::halo2_circuit::*;
 use ff_uint::NumRepr;
-use halo2_proofs::arithmetic::FieldExt
+use halo2_proofs::{
+    arithmetic::FieldExt,
+    circuit::{AssignedCell, Chip, Layouter, Region, SimpleFloorPlanner, Value},
+    plonk::{Advice, Any, Circuit, Column, ConstraintSystem, Error, Fixed, Instance, Selector},
+};
 
-;
+use self::halo2_circuit::HaloCS;
 
 pub fn num_to_halo_fp<Fx: PrimeField, Fy: FieldExt>(
     from: Num<Fx>,
@@ -44,4 +49,52 @@ pub fn halo_fp_to_num<Fx: PrimeField, Fy: FieldExt>(
     }
     
     Num::from_uint(to).unwrap()
+}
+
+/// Takes constraints in BuildCS format, produces a HaloCS and inputs vector
+/// which can be fed to halo2 prover.
+pub fn fawkes_cs_to_halo<Fx: PrimeField, Fy: FieldExt>(
+    cs: BuildCS<Fx>
+) -> (HaloCS<Fy>, Vec<Option<Fy>>) {
+    // TODO: Some .clone() operations in this implementation are
+    // unnecessary. Remove them.
+
+    let public: Vec<usize> = itertools::sorted(cs.public.into_iter()).collect();
+    let values: Vec<Option<Fy>> = cs.values
+        .into_iter()
+        .map(
+            |v| v.map(
+                |u| num_to_halo_fp(u)
+            )
+        ).collect();
+
+    use std::ops::Index;
+    let get_value = |i: usize| {
+        let x: &Option<Fy> = values.index(i);
+        let v = match x {
+            None => Value::<Fy>::unknown(),
+            Some(x) => Value::known(x.clone()),
+        };
+        match public.binary_search(&&i) {
+            Ok(i) => ValueReference::new_instance(i),
+            Err(_) => ValueReference::new_advice(v),
+        }
+    };
+
+    let g : Vec<_> = cs.gates.iter().map(|g| {
+        FawkesGateValues {
+            x: get_value(g.x),
+            y: get_value(g.y),
+            z: get_value(g.z),
+            a: num_to_halo_fp(g.a),
+            b: num_to_halo_fp(g.b),
+            c: num_to_halo_fp(g.c),
+            d: num_to_halo_fp(g.d),
+            e: num_to_halo_fp(g.e),
+        }
+    }).collect();
+
+    let ins = public.iter().map(|&i| values[i]).collect();
+
+    (HaloCS { gates: g }, ins)
 }

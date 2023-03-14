@@ -1,8 +1,7 @@
 use std::{marker::PhantomData, iter};
 
-// use group::{ff::Field, prime::PrimeCurve};
 use halo2_proofs::{
-    arithmetic::{FieldExt},
+    arithmetic::FieldExt,
     circuit::{AssignedCell, Chip, Layouter, Region, SimpleFloorPlanner, Value},
     plonk::{Advice, Any, Circuit, Column, ConstraintSystem, Error, Fixed, Instance, Selector},
     poly::Rotation, // dev::metadata::Column,
@@ -28,14 +27,14 @@ pub enum ValueReference<F: FieldExt> {
 }
 
 impl<F: FieldExt> ValueReference<F> {
-    fn new_advice(v: Value<F>) -> Self {
+    pub fn new_advice(v: Value<F>) -> Self {
         ValueReference::ValueAdvice(v)
     }
-    fn new_instance(i: usize) -> Self {
+    pub fn new_instance(i: usize) -> Self {
         ValueReference::ValueInstance(i)
     }
     /// Assign this value to a region cell (given by column and offset)
-    fn assign(
+    pub fn assign(
         &mut self,
         region: &mut Region<F>,
         instance: Column<Instance>,
@@ -77,14 +76,14 @@ impl<F: FieldExt> ValueReference<F> {
 /// advice, while the fixed fields must have concrete values.
 #[derive(Clone, Debug)]
 pub struct FawkesGateValues<F: FieldExt> {
-    x: ValueReference<F>,
-    y: ValueReference<F>,
-    z: ValueReference<F>,
-    a: F,
-    b: F,
-    c: F,
-    d: F,
-    e: F,
+    pub x: ValueReference<F>,
+    pub y: ValueReference<F>,
+    pub z: ValueReference<F>,
+    pub a: F,
+    pub b: F,
+    pub c: F,
+    pub d: F,
+    pub e: F,
 }
 
 /// a*x + b*y + c*z + d*x*y + e == 0
@@ -183,6 +182,11 @@ impl<F: FieldExt> FawkesGateConfig<F> {
             g.y.assign(&mut region, self.inst, self.y, offset)?;
             g.z.assign(&mut region, self.inst, self.z, offset)?;
 
+
+           // x | y | z | a | b | c | d | e
+           // -----------------------------
+           //             1   2   3   4   5    <- current line
+
             // Assign the fixed values in the current row
             region.assign_fixed(|| format!("a = {:?}", g.a), self.a, offset, || Value::known(g.a))?;
             region.assign_fixed(|| format!("b = {:?}", g.b), self.b, offset, || Value::known(g.b))?;
@@ -195,16 +199,16 @@ impl<F: FieldExt> FawkesGateConfig<F> {
     }
 }
 
-pub struct PlonkCS<Fr: FieldExt> {
+pub struct HaloCS<Fr: FieldExt> {
     pub gates: Vec<FawkesGateValues<Fr>>,
 }
 
-impl<F: FieldExt> Circuit<F> for PlonkCS<F> {
+impl<F: FieldExt> Circuit<F> for HaloCS<F> {
     type Config = FawkesGateConfig<F>;
     type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {
-        PlonkCS {
+        HaloCS {
             gates: unimplemented!(),
         }
     }
