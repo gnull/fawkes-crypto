@@ -74,12 +74,10 @@ pub fn fawkes_cs_to_halo<Fx: PrimeField, Fy: FieldExt>(
 
     let g : Vec<_> = {
         let get_value = |i: usize| {
-            use std::ops::Index;
-            let x: &Option<Fy> = values.index(i);
-            match public.binary_search(&&i) {
+            match public.binary_search(&i) {
                 Ok(i) => ValueReference::new_instance(i),
                 Err(_) => ValueReference::new_advice(
-                    match x {
+                    match values[i] {
                         None => Value::<Fy>::unknown(),
                         Some(x) => Value::known(x.clone()),
                     }
