@@ -4,7 +4,7 @@ use crate::{
         num::CNum,
     },
     core::signal::Signal,
-    ff_uint::{Num, PrimeField},
+    ff_uint::{Num},
 };
 
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not};

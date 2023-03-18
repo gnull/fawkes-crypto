@@ -5,7 +5,7 @@ use crate::{
         bitify::c_into_bits_le_strict,
     },
     core::signal::Signal,
-    ff_uint::{Num, PrimeField},
+    ff_uint::{Num},
 };
 use std::{
     cell::RefCell,

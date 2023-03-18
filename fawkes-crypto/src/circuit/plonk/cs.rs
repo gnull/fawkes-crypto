@@ -39,6 +39,8 @@ pub trait CS: Clone {
     fn get_value(&self, index: usize) -> Option<Num<Self::Fr>>;
     fn get_gate_iterator(&self) -> Self::GateIterator;
 
+    fn as_public(&self) -> &[usize];
+
     // a * b == c
     fn enforce_mul(a: &CNum<Self>, b: &CNum<Self>, c: &CNum<Self>);
 
@@ -100,6 +102,10 @@ impl<Fr: PrimeField> CS for BuildCS<Fr> {
 
     fn get_gate_iterator(&self) -> Self::GateIterator {
         self.gates.clone().into_iter()
+    }
+
+    fn as_public(&self) -> &[usize] {
+        &self.public
     }
 
     // a*b === c

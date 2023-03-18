@@ -1,74 +1,148 @@
-use super::halo2_circuit::*;
 
-// use group::{ff::Field, prime::PrimeCurve};
+use super::*;
+
+#[cfg(feature = "serde_support")]
+use serde::{Serialize, Deserialize};
+#[cfg(feature = "borsh_support")]
+use borsh::{BorshSerialize, BorshDeserialize};
+
 use halo2_proofs::{
-    dev::MockProver,
-    plonk::create_proof,
-    halo2curves::FieldExt,
+    plonk::{
+        create_proof,Circuit, ProvingKey as PlonkProvingKey, 
+    },
+    poly::{
+        kzg::{
+            commitment::{KZGCommitmentScheme, ParamsKZG},
+            multiopen::{ProverGWC},
+        },
+    },
+    transcript::{EncodedChallenge, TranscriptReadBuffer, TranscriptWriterBuffer}
 };
 
-use crate::{
-  circuit::{
-    cs::*,
-  },
-  ff_uint::{PrimeField},
+use plonk_verifier::system::halo2::transcript::evm::EvmTranscript;
+use itertools::Itertools;
+use std::{
+    io::{Cursor},
+    rc::Rc,
+    cell::{RefCell}
 };
 
-use super::{
-    fawkes_cs_to_halo,
-};
 
-/// This runs a `MockProver` on a `BuildCS` value. Returns `true` if circuit
-/// was built and verified correctly. The `Fy` type parameter specifies the
-/// field type that the numbers in `BuildCS<Fx>` should be converted to.
-pub fn mock_prove<Fx: PrimeField, Fy: FieldExt>(cs: BuildCS<Fx>) -> bool {
-    use std::cmp::max;
+use halo2_curves::pairing::{MultiMillerLoop};
 
-    // Maximum number of halo2 rows. It limits the allowed number of gates and
-    // inputs for our circuit. Shouldn't be greater than 2^18.
-    //
-    // TODO: We may need to increase this value a bit, since halo2's Layouter
-    // may not fit our values perfectly, or may use a couple of rows for its
-    // own stuff.
-    let k = max(cs.gates.len(), cs.public.len()) as u32;
 
-    let (cs, ins) = fawkes_cs_to_halo::<Fx, Fy>(cs);
-    let ins = ins.into_iter().map(|i| i.unwrap()).collect();
-    let prover = MockProver::run(k, &cs, vec![ins]).unwrap();
-    prover.verify().is_ok()
+use halo2_rand::rngs::OsRng;
+
+use crate::circuit::cs::BuildCS;
+
+use super::setup::{ProvingKey};
+
+#[cfg_attr(feature = "serde_support", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde_support", serde(bound(serialize = "", deserialize = "")))]
+#[derive(Clone, Debug, BorshDeserialize, BorshSerialize)]
+pub struct Proof(pub Vec<u8>);
+
+
+
+
+fn gen_proof<
+    E: MultiMillerLoop+std::fmt::Debug,
+    C: Circuit<E::Scalar>,
+    EC: EncodedChallenge<E::G1Affine>,
+    TR: TranscriptReadBuffer<Cursor<Vec<u8>>, E::G1Affine, EC>,
+    TW: TranscriptWriterBuffer<Vec<u8>, E::G1Affine, EC>,
+>(
+    params: &ParamsKZG<E>,
+    pk: &PlonkProvingKey<E::G1Affine>,
+    circuit: C,
+    instances: Vec<Vec<E::Scalar>>,
+) -> Vec<u8> {
+    // MockProver::run(params.k(), &circuit, instances.clone())
+    //     .unwrap()
+    //     .assert_satisfied();
+
+    let instances = instances
+        .iter()
+        .map(|instances| instances.as_slice())
+        .collect_vec();
+    
+    
+    let proof = {
+        let mut transcript = TW::init(Vec::new());
+        create_proof::<KZGCommitmentScheme<E>, ProverGWC<_>, _, _, TW, _>(
+            params,
+            pk,
+            &[circuit],
+            &[instances.as_slice()],
+            OsRng,
+            &mut transcript,
+        )
+        .unwrap();
+        transcript.finalize()
+    };
+    proof
+
+    // let accept = {
+    //     let mut transcript = TR::init(Cursor::new(proof.clone()));
+    //     VerificationStrategy::<_, VerifierGWC<_>>::finalize(
+    //         verify_proof::<_, VerifierGWC<_>, _, TR, _>(
+    //             params.verifier_params(),
+    //             pk.get_vk(),
+    //             AccumulatorStrategy::new(params.verifier_params()),
+    //             &[instances.as_slice()],
+    //             &mut transcript,
+    //         )
+    //         .unwrap(),
+    //     )
+    // };
+
+    // (proof, accept)
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::{
-        circuit::{cs::{BuildCS, CS}, num::CNum},
-        core::{signal::Signal},
-        engines::bn256::Fr as FawkesFr,
-        rand::{thread_rng, Rng},
+
+
+pub fn prove<Pub: Signal<BuildCS<crate::engines::bn256::Fr>>, Sec: Signal<BuildCS<crate::engines::bn256::Fr>>, C: Fn(Pub, Sec)>(
+    params: &Parameters<super::engines::Bn256>,
+    pk: &ProvingKey<super::engines::Bn256>,
+    input_pub: &Pub::Value,
+    input_sec: &Sec::Value,
+    circuit: C,
+) -> (Vec<Num<crate::engines::bn256::Fr>>, Proof)
+{
+    let cs = BuildCS::<crate::engines::bn256::Fr>::new(false);
+    let ref rcs = Rc::new(RefCell::new(cs));
+
+    let signal_pub = Pub::alloc(rcs, Some(input_pub));
+    signal_pub.inputize();
+    let signal_sec = Sec::alloc(rcs, Some(input_sec));
+
+    circuit(signal_pub, signal_sec);
+
+    let bcs = HaloCS::<BuildCS<crate::engines::bn256::Fr>>::new(rcs.clone());
+
+    let inputs = {
+        let cs = rcs.borrow();
+        let mut res = Vec::with_capacity(cs.num_input());
+        for i in 0..cs.num_input() {
+            res.push(cs.get_value(cs.as_public()[i]).unwrap())
+        }
+        res
     };
-    use halo2curves::bn256::Fr as HaloFr;
 
-    #[test]
-    #[cfg(feature = "rand_support")]
-    fn test_mock_prover() {
-        use super::mock_prove;
+    let inputs_converted = inputs.iter().cloned().map(num_to_halo_fp).collect_vec();
 
-        let ref mut cs = BuildCS::<FawkesFr>::rc_new(false);
-        let mut rng = thread_rng();
+    let proof = gen_proof::<
+        halo2_curves::bn256::Bn256,
+        _,
+        _,
+        EvmTranscript<halo2_curves::bn256::G1Affine, _, _, _>,
+        EvmTranscript<halo2_curves::bn256::G1Affine, _, _, _>
+    >(
+        &params.0,
+        &pk.0,
+        bcs,
+        vec![inputs_converted],
+    );
 
-        let _a = rng.gen();
-        let _b = rng.gen();
-        let _c = _a * _b * _b;
-
-        let a = CNum::alloc(cs, Some(&_a));
-        let b = CNum::alloc(cs, Some(&_b));
-
-        let c = a * &b * b;
-        c.inputize();
-
-        let cs = cs;
-
-        let res = mock_prove::<FawkesFr, HaloFr>(cs.borrow().clone());
-        assert!(res, "mock prover failed!");
-    }
+    (inputs, Proof(proof))
 }

@@ -1,19 +1,29 @@
-pub mod halo2_circuit;
-pub mod setup;
 pub mod prover;
 pub mod verifier;
-pub mod standard_plonk_config;
+pub mod plonk_config;
+pub mod engines;
+pub mod setup;
 
-use crate::{ff_uint::{Num, PrimeField}, circuit::cs::BuildCS};
-use self::halo2_circuit::*;
-use ff_uint::NumRepr;
-use halo2_proofs::{
-    arithmetic::FieldExt,
-    circuit::{AssignedCell, Chip, Layouter, Region, SimpleFloorPlanner, Value},
-    plonk::{Advice, Any, Circuit, Column, ConstraintSystem, Error, Fixed, Instance, Selector},
+use crate::{
+    circuit::{
+        cs::{RCS, CS}
+    },
+    core::signal::Signal,
+    ff_uint::{Num, PrimeField, NumRepr},
 };
 
-use self::halo2_circuit::HaloCS;
+use halo2_proofs::{
+    arithmetic::{FieldExt},
+    circuit::{AssignedCell,  Layouter, Region, SimpleFloorPlanner, Value},
+    plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Instance},
+    poly::kzg::commitment::ParamsKZG,
+};
+
+use self::plonk_config::PlonkConfig;
+use engines::Engine;
+use halo2_rand::rngs::OsRng;
+
+
 
 pub fn num_to_halo_fp<Fx: PrimeField, Fy: FieldExt>(
     from: Num<Fx>,
@@ -27,7 +37,7 @@ pub fn num_to_halo_fp<Fx: PrimeField, Fy: FieldExt>(
     assert!(buff_ref.len()*8 == to_ref.len());
 
     for i in 0..buff_ref.len() {
-        to_ref[8*i..].copy_from_slice(&buff_ref[i].to_le_bytes());
+        to_ref[8*i..8*(i+1)].copy_from_slice(&buff_ref[i].to_le_bytes());
     }
 
     Fy::from_repr_vartime(to).unwrap()
@@ -51,55 +61,115 @@ pub fn halo_fp_to_num<Fx: PrimeField, Fy: FieldExt>(
     Num::from_uint(to).unwrap()
 }
 
-/// Takes constraints in BuildCS format, produces a HaloCS and inputs vector
-/// which can be fed to halo2 prover.
-pub fn fawkes_cs_to_halo<Fx: PrimeField, Fy: FieldExt>(
-    cs: BuildCS<Fx>
-) -> (HaloCS<Fy>, Vec<Option<Fy>>) {
-    // TODO: Some .clone() operations in this implementation are
-    // unnecessary. Remove them.
+pub fn num_to_halo_fp_value<Fx: PrimeField, Fy: FieldExt>(
+    from: Option<Num<Fx>>,
+) -> Value<Fy> {
+    match from {
+        Some(from)=>Value::known(num_to_halo_fp(from)),
+        None=>Value::unknown(),
+    }
+}
 
-    let public = {
-        let mut p = cs.public;
-        p.sort();
-        p
+#[repr(transparent)]
+#[derive(Clone, Debug)]
+pub struct HaloCS<C:CS>(RCS<C>);
+
+impl <C:CS> HaloCS<C> {
+    pub fn new(inner:RCS<C>) -> Self {
+        Self(inner)
+    }
+}
+
+#[derive(Clone, Debug)]
+enum Halo2Cell<F:FieldExt> {
+    Input(usize),
+    Aux(AssignedCell<F, F>),
+}
+
+
+fn assign_advice_ex<Fr:PrimeField, F:FieldExt, AnR: Into<String>, An:Fn()->AnR, Val:Fn()->Option<Num<Fr>>>(region:&mut Region<F>, 
+    var_cells: &mut[Option::<Halo2Cell<F>>], 
+    annotation:An, offset:usize, 
+    adv:Column<Advice>, inst:Column<Instance>, var:usize,
+    val:Val
+) -> Result<(), Error> {
+    if let Some(vc) = var_cells[var].as_ref() {
+        match vc {
+            Halo2Cell::Input(i)=> {
+                region.assign_advice_from_instance(annotation, inst, *i, adv, offset)?;
+                
+            },
+            Halo2Cell::Aux(cell)=> {
+                cell.copy_advice(annotation, region, adv, offset)?;
+            },
+        }
+
+    } else {
+        let cell = region.assign_advice(
+            annotation, adv, offset, 
+            || num_to_halo_fp_value::<_,F>(val()))?;
+        var_cells[var] = Some(Halo2Cell::Aux(cell));
     };
-    let values: Vec<Option<Fy>> = cs.values
-        .into_iter()
-        .map(
-            |v| v.map(
-                |u| num_to_halo_fp(u)
-            )
-        ).collect();
+    Ok(())
+}
 
-    let g : Vec<_> = {
-        let get_value = |i: usize| {
-            match public.binary_search(&i) {
-                Ok(i) => ValueReference::new_instance(i),
-                Err(_) => ValueReference::new_advice(
-                    match values[i] {
-                        None => Value::<Fy>::unknown(),
-                        Some(x) => Value::known(x.clone()),
-                    }
-                ),
+
+impl<F: FieldExt, C:CS> Circuit<F> for HaloCS<C> {
+    type Config = plonk_config::PlonkConfig;
+    type FloorPlanner = SimpleFloorPlanner;
+    
+    fn without_witnesses(&self) -> Self {
+        std::unimplemented!()
+    }
+
+    fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+        PlonkConfig::configure(meta)
+    }
+
+    fn synthesize(&self, config: Self::Config, mut layouter: impl Layouter<F>) -> Result<(), Error> {
+        let cs = self.0.borrow();
+        let num_input = cs.num_input();
+        let num_var = cs.num_aux()+num_input;
+        
+        let public_indexes = cs.as_public();
+
+
+        
+        layouter.assign_region(|| format!("syntesize circuit"), |mut region| {
+
+            let mut var_cells = vec![Option::<Halo2Cell<F>>::None; num_var];
+
+            for i in 0..num_input {
+                var_cells[public_indexes[i] as usize] = Some(Halo2Cell::Input(i));
             }
-        };
 
-        cs.gates.iter().map(|g| {
-            FawkesGateValues {
-                x: get_value(g.x),
-                y: get_value(g.y),
-                z: get_value(g.z),
-                a: num_to_halo_fp(g.a),
-                b: num_to_halo_fp(g.b),
-                c: num_to_halo_fp(g.c),
-                d: num_to_halo_fp(g.d),
-                e: num_to_halo_fp(g.e),
+            for (offset, g) in cs.get_gate_iterator().enumerate() {                
+                assign_advice_ex(&mut region, &mut var_cells, || format!("assign x[{}]", offset), 
+                    offset, config.a, config.instance, g.x, || cs.get_value(g.x))?;
+                assign_advice_ex(&mut region, &mut var_cells, || format!("assign y[{}]", offset), 
+                    offset, config.b, config.instance, g.y, || cs.get_value(g.y))?;
+                assign_advice_ex(&mut region, &mut var_cells, || format!("assign z[{}]", offset), 
+                    offset, config.c, config.instance, g.z, || cs.get_value(g.z))?;
+
+                region.assign_fixed(|| format!("assign a[{}]", offset), config.q_a, offset, || num_to_halo_fp_value::<_,F>(Some(g.a)))?;
+                region.assign_fixed(|| format!("assign b[{}]", offset), config.q_b, offset, || num_to_halo_fp_value::<_,F>(Some(g.b)))?;
+                region.assign_fixed(|| format!("assign c[{}]", offset), config.q_c, offset, || num_to_halo_fp_value::<_,F>(Some(g.c)))?;
+                region.assign_fixed(|| format!("assign d[{}]", offset), config.q_ab, offset, || num_to_halo_fp_value::<_,F>(Some(g.d)))?;
+                region.assign_fixed(|| format!("assign e[{}]", offset), config.constant, offset, || num_to_halo_fp_value::<_,F>(Some(g.e)))?;
             }
-        }).collect()
-    };
 
-    let ins = public.iter().map(|&i| values[i]).collect();
+            Ok(())
+        })?;
+        Ok(())
+    }
+}
 
-    (HaloCS { gates: g }, ins)
+#[derive(Clone, Debug)]
+pub struct Parameters<E: Engine>(pub ParamsKZG<E::BE>);
+
+impl <E:Engine> Parameters<E> {
+    pub fn setup(k:usize) -> Self {
+        let params = ParamsKZG::<E::BE>::setup(k as u32, OsRng);
+        Self(params)
+    }
 }
