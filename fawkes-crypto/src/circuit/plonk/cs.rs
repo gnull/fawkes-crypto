@@ -10,7 +10,7 @@ pub type RCS<C> = Rc<RefCell<C>>;
 
 /// A `Gate` describes constraint of the form
 ///
-/// ```
+/// ```ignore
 /// a*x + b*y + c*z + d*x*y + e == 0
 /// ```
 ///
