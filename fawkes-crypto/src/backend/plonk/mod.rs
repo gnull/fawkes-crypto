@@ -86,18 +86,27 @@ enum Halo2Cell<F:FieldExt> {
     Aux(AssignedCell<F, F>),
 }
 
-
-fn assign_advice_ex<Fr:PrimeField, F:FieldExt, AnR: Into<String>, An:Fn()->AnR, Val:Fn()->Option<Num<Fr>>>(region:&mut Region<F>, 
-    var_cells: &mut[Option::<Halo2Cell<F>>], 
-    annotation:An, offset:usize, 
-    adv:Column<Advice>, inst:Column<Instance>, var:usize,
-    val:Val
+/// Assign the value specified by `val` (evaluated lazily on-demand) into the
+/// cell at column `adv` and row `offset`.
+///
+/// This function uses `var_cells` array to keep track of previously assigned
+/// witnesses. If the `val` was assigned to some cell before, this function
+/// will copy it from the old locaiton ensuring the equality between the two
+/// cells.
+fn assign_advice_ex<Fr:PrimeField, F:FieldExt, AnR: Into<String>, An:Fn()->AnR, Val:Fn() -> Option<Num<Fr>>>(
+    region: &mut Region<F>,
+    var_cells: &mut[Option::<Halo2Cell<F>>],
+    annotation: An,
+    offset: usize,
+    adv: Column<Advice>,
+    inst: Column<Instance>,
+    var: usize,
+    val: Val
 ) -> Result<(), Error> {
     if let Some(vc) = var_cells[var].as_ref() {
         match vc {
             Halo2Cell::Input(i)=> {
                 region.assign_advice_from_instance(annotation, inst, *i, adv, offset)?;
-                
             },
             Halo2Cell::Aux(cell)=> {
                 cell.copy_advice(annotation, region, adv, offset)?;
@@ -132,8 +141,6 @@ impl<F: FieldExt, C:CS> Circuit<F> for HaloCS<C> {
         let num_var = cs.num_aux()+num_input;
         
         let public_indexes = cs.as_public();
-
-
         
         layouter.assign_region(|| format!("syntesize circuit"), |mut region| {
 
